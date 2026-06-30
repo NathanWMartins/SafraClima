@@ -1,0 +1,287 @@
+// SafraClima — schema.prisma
+// Banco: PostgreSQL via Neon (serverless)
+// ORM: Prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Plano {
+  FREE
+  PRO
+}
+
+enum Cultura {
+  SOJA
+  MILHO
+  CAFE
+  ALGODAO
+  CANA
+  ARROZ
+  FEIJAO
+  TRIGO
+  OUTROS
+}
+
+enum TipoAlerta {
+  GEADA
+  SECA
+  CHUVA_INTENSA
+  VENTO_FORTE
+  ENCHENTE
+  QUALIDADE_AR_RUIM
+  UV_ALTO
+}
+
+enum SeveridadeAlerta {
+  BAIXA
+  MEDIA
+  ALTA
+  CRITICA
+}
+
+// ─────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  plano         Plano     @default(FREE)
+  planoAtéEm   DateTime? // data de expiração do Pro
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // NextAuth
+  accounts Account[]
+  sessions Session[]
+
+  // SafraClima
+  areas   Area[]
+  alertas Alerta[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// NEXTAUTH (obrigatório para NextAuth.js + Prisma adapter)
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────
+// ÁREA (unidade principal — 1 cultura por área)
+// ─────────────────────────────────────────────
+
+model Area {
+  id        String  @id @default(cuid())
+  nome      String
+  latitude  Float
+  longitude Float
+  cultura   Cultura
+  ativa     Boolean @default(true)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dadosClimaticos  DadoClimaticoDiario[]
+  dadosQualidadeAr QualidadeArDiario[]
+  dadosEnchente    DadoEnchenteDiario[]
+  alertas          Alerta[]
+
+  @@index([userId])
+  @@map("areas")
+}
+
+// ─────────────────────────────────────────────
+// DADO CLIMÁTICO DIÁRIO
+// Fonte: Forecast API + Historical API (Open-Meteo)
+// ─────────────────────────────────────────────
+
+model DadoClimaticoDiario {
+  id     String   @id @default(cuid())
+  data   DateTime @db.Date
+  areaId String
+
+  // Temperatura (°C)
+  tempMax Float?
+  tempMin Float?
+
+  // Precipitação
+  precipitacao     Float? // mm acumulado no dia
+  probPrecipitacao Int?   // % probabilidade máxima
+
+  // Vento
+  ventoMax Float? // km/h
+
+  // Evapotranspiração (mm) — déficit hídrico
+  evapotranspiracao Float?
+
+  // Solo — médias diárias das leituras horárias
+  tempSolo0cm   Float? // temperatura superfície (°C)
+  tempSolo6cm   Float?
+  tempSolo18cm  Float?
+  umidadeSolo01 Float? // m³/m³ — camada 0-1cm
+  umidadeSolo13 Float? // camada 1-3cm
+  umidadeSolo39 Float? // camada 3-9cm
+
+  // Radiação solar (MJ/m²)
+  radiacaoSolar Float?
+
+  // Código WMO do tempo (ex: 61 = chuva leve, 95 = trovoada)
+  weatherCode Int?
+
+  // Indica se é dado histórico (archive) ou previsão persistida
+  ehHistorico Boolean @default(false)
+
+  area Area @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([areaId, data])
+  @@index([areaId, data])
+  @@map("dados_climaticos_diarios")
+}
+
+// ─────────────────────────────────────────────
+// QUALIDADE DO AR DIÁRIO
+// Fonte: Air Quality API (Open-Meteo)
+// ─────────────────────────────────────────────
+
+model QualidadeArDiario {
+  id     String   @id @default(cuid())
+  data   DateTime @db.Date
+  areaId String
+
+  // Partículas (μg/m³)
+  pm10  Float?
+  pm25  Float?
+  dust  Float? // poeira
+
+  // Gases (μg/m³)
+  co  Float?
+  no2 Float?
+  o3  Float?
+  so2 Float?
+
+  // UV — pico do dia
+  uvIndexMax Float?
+
+  // Índice consolidado (US AQI)
+  usAqi Int?
+
+  area Area @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([areaId, data])
+  @@index([areaId, data])
+  @@map("qualidade_ar_diarios")
+}
+
+// ─────────────────────────────────────────────
+// ENCHENTE / DESCARGA DE RIO DIÁRIA
+// Fonte: Flood API (Open-Meteo — GloFAS v4)
+// ─────────────────────────────────────────────
+
+model DadoEnchenteDiario {
+  id     String   @id @default(cuid())
+  data   DateTime @db.Date
+  areaId String
+
+  // Descarga do rio mais próximo (m³/s)
+  descargaRio        Float?
+  descargaRioMax     Float?
+  descargaRioMediana Float?
+
+  area Area @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([areaId, data])
+  @@index([areaId, data])
+  @@map("dados_enchente_diarios")
+}
+
+// ─────────────────────────────────────────────
+// ALERTA
+// ─────────────────────────────────────────────
+
+model Alerta {
+  id         String           @id @default(cuid())
+  tipo       TipoAlerta
+  severidade SeveridadeAlerta
+  titulo     String
+  mensagem   String
+  dataEvento DateTime         @db.Date
+
+  lido      Boolean   @default(false)
+  lidoEm    DateTime?
+  enviado   Boolean   @default(false)
+  enviadoEm DateTime?
+
+  areaId String
+  area   Area   @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, lido])
+  @@index([areaId, dataEvento])
+  @@map("alertas")
+}

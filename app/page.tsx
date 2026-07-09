@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Navbar } from "./components/Navbar";
 import { RevealOnScroll } from "./components/RevealOnScroll";
+import { FuncionalidadesScroll } from "./components/FuncionalidadesScroll";
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
@@ -448,7 +449,7 @@ function Footer() {
           alt="SafraClima"
           width={120}
           height={34}
-          className="h-40 w-auto"
+          className="h-15 w-auto"
         />
         <p className="text-sm text-black/80">
           © {new Date().getFullYear()} SafraClima. Todos os direitos reservados.
@@ -468,7 +469,7 @@ export default function Home() {
       <Hero />
       <ProvasSocial />
       <ComoFunciona />
-      <Funcionalidades />
+      <FuncionalidadesScroll />
       <Planos />
       <CTAFinal />
       <Footer />

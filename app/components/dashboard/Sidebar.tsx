@@ -24,8 +24,8 @@ export function Sidebar({ user }: { user: User }) {
 
   return (
     <aside className="hidden md:flex fixed left-0 top-0 h-full w-64 bg-[#fefefe] flex-col z-40 border-r border-black/8">
-      <div className="border-b border-black/8">
-        <Image src="/LogoSafraClima.png" alt="SafraClima" width={140} height={140} className="h-40 w-auto" />
+      <div className="border-b border-black/8 mt-5 mb-2">
+        <Image src="/LogoSafraClima.png" alt="SafraClima" width={140} height={140} className="h-20 w-auto" />
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">

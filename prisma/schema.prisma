@@ -184,6 +184,10 @@ model DadoClimaticoDiario {
   // Código WMO do tempo (ex: 61 = chuva leve, 95 = trovoada)
   weatherCode Int?
 
+  // Campos adicionais
+  uvMax            Float? // índice UV máximo do dia
+  umidadeRelativa  Int?   // % umidade relativa média do dia
+
   // Indica se é dado histórico (archive) ou previsão persistida
   ehHistorico Boolean @default(false)
 

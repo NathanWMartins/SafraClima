@@ -15,7 +15,7 @@ export default async function DashboardPage() {
   const primeiroAcesso = areas.length === 0;
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto">
+    <div className="p-6 md:p-8 max-w-5xl">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white flex items-center gap-2">

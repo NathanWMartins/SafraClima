@@ -9,7 +9,7 @@ import { Home, MapPin, Bell, BarChart3, LogOut } from "lucide-react";
 const navItems = [
   { href: "/dashboard", label: "Início", Icon: Home },
   { href: "/dashboard/areas", label: "Minhas Áreas", Icon: MapPin },
-  { href: "/dashboard/alertas", label: "Alertas", Icon: Bell },
+  { href: "/dashboard/alertas", label: "Alertas", Icon: Bell, badgeKey: "alertas" },
   { href: "/dashboard/historico", label: "Histórico", Icon: BarChart3 },
 ];
 
@@ -19,7 +19,7 @@ type User = {
   image?: string | null;
 };
 
-export function Sidebar({ user }: { user: User }) {
+export function Sidebar({ user, alertasNaoLidos = 0 }: { user: User; alertasNaoLidos?: number }) {
   const pathname = usePathname();
 
   return (
@@ -29,8 +29,9 @@ export function Sidebar({ user }: { user: User }) {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map(({ href, label, Icon }) => {
-          const active = pathname === href;
+        {navItems.map(({ href, label, Icon, badgeKey }) => {
+          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+          const badge = badgeKey === "alertas" && alertasNaoLidos > 0 ? alertasNaoLidos : 0;
           return (
             <Link
               key={href}
@@ -40,7 +41,12 @@ export function Sidebar({ user }: { user: User }) {
               }`}
             >
               <Icon className="w-5 h-5" strokeWidth={active ? 2.5 : 1.5} />
-              {label}
+              <span className="flex-1">{label}</span>
+              {badge > 0 && (
+                <span className="bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
+                  {badge > 99 ? "99+" : badge}
+                </span>
+              )}
             </Link>
           );
         })}

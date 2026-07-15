@@ -5,16 +5,14 @@ import Link from "next/link";
 import {
   ArrowLeft, MapPin, Sprout, Thermometer, Droplets,
   Wind, Sun, CloudRain, Cloud, CloudSun, CloudFog,
-  CloudDrizzle, CloudSnow, Zap, Leaf, Clock,
+  CloudDrizzle, CloudSnow, Zap, Leaf, Clock, Wind as WindIcon,
 } from "lucide-react";
 import {
-  descricaoTempo,
-  categoriaUV,
-  categoriaEvapotranspiracao,
-  categoriaUmidadeSolo,
-  diaSemana,
+  descricaoTempo, categoriaUV, categoriaEvapotranspiracao,
+  categoriaUmidadeSolo, categoriaUmidadeSolo as catSolo,
 } from "@/lib/openmeteo";
-import type { DadoClimaticoDiario } from "@prisma/client";
+import type { DadoClimaticoDiario, QualidadeArDiario } from "@prisma/client";
+import { PrevisaoSection } from "./PrevisaoSection";
 
 const culturaLabel: Record<string, string> = {
   SOJA: "Soja", MILHO: "Milho", CAFE: "Café", ALGODAO: "Algodão",
@@ -50,39 +48,22 @@ function HighlightCard({ icon, label, value, sub }: {
   );
 }
 
-function ForecastCard({ dia, isHoje }: { dia: DadoClimaticoDiario; isHoje: boolean }) {
-  const dateStr = dia.data.toISOString().slice(0, 10);
-  return (
-    <div className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border ${
-      isHoje ? "bg-[#B2D5E5]/10 border-[#B2D5E5]/25" : "bg-white/3 border-white/6"
-    }`}>
-      <span className={`text-xs font-semibold uppercase ${isHoje ? "text-[#B2D5E5]" : "text-white/40"}`}>
-        {isHoje ? "Hoje" : diaSemana(dateStr)}
-      </span>
-      <WeatherIcon code={dia.weatherCode ?? 0} className="w-5 h-5 text-white/70" />
-      <span className="text-sm font-bold text-white">{Math.round(dia.tempMax ?? 0)}°</span>
-      <span className="text-xs text-white/30">{Math.round(dia.tempMin ?? 0)}°</span>
-      {(dia.probPrecipitacao ?? 0) > 0 && (
-        <div className="flex items-center gap-0.5">
-          <Droplets className="w-3 h-3 text-[#B2D5E5]/70" strokeWidth={2} />
-          <span className="text-[10px] text-[#B2D5E5]/70">{dia.probPrecipitacao}%</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ProgressBar({ value, max = 60 }: { value: number; max?: number }) {
   const pct = Math.min(100, (value / max) * 100);
-  const cor =
-    pct < 25 ? "bg-red-400" :
-    pct < 55 ? "bg-emerald-400" :
-    pct < 75 ? "bg-blue-400" : "bg-purple-400";
+  const cor = pct < 25 ? "bg-red-400" : pct < 55 ? "bg-emerald-400" : pct < 75 ? "bg-blue-400" : "bg-purple-400";
   return (
     <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
       <div className={`h-full rounded-full ${cor}`} style={{ width: `${pct}%` }} />
     </div>
   );
+}
+
+function categoriaAQI(aqi: number): { label: string; cor: string; bg: string } {
+  if (aqi <= 50) return { label: "Bom", cor: "text-emerald-400", bg: "bg-emerald-400/10 border-emerald-400/20" };
+  if (aqi <= 100) return { label: "Moderado", cor: "text-yellow-400", bg: "bg-yellow-400/10 border-yellow-400/20" };
+  if (aqi <= 150) return { label: "Insalubre para sensíveis", cor: "text-orange-400", bg: "bg-orange-400/10 border-orange-400/20" };
+  if (aqi <= 200) return { label: "Insalubre", cor: "text-red-400", bg: "bg-red-400/10 border-red-400/20" };
+  return { label: "Muito insalubre", cor: "text-purple-400", bg: "bg-purple-400/10 border-purple-400/20" };
 }
 
 export default async function AreaPage({ params }: { params: Promise<{ id: string }> }) {
@@ -92,30 +73,65 @@ export default async function AreaPage({ params }: { params: Promise<{ id: strin
   const area = await prisma.area.findUnique({ where: { id } });
   if (!area || area.userId !== session!.user!.id!) notFound();
 
-  // Busca os próximos 7 dias a partir de hoje
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
 
-  const dados = await prisma.dadoClimaticoDiario.findMany({
-    where: {
-      areaId: area.id,
-      data: { gte: hoje },
-    },
-    orderBy: { data: "asc" },
-    take: 7,
-  });
+  const [dados, horarios, qualidadeAr] = await Promise.all([
+    // 7 dias de previsão diária
+    prisma.dadoClimaticoDiario.findMany({
+      where: { areaId: area.id, data: { gte: hoje } },
+      orderBy: { data: "asc" },
+      take: 7,
+    }),
+    // Dados hora a hora (próximas 168h)
+    prisma.dadoClimaticoHorario.findMany({
+      where: { areaId: area.id, hora: { gte: new Date() } },
+      orderBy: { hora: "asc" },
+    }),
+    // Qualidade do ar de hoje
+    prisma.qualidadeArDiario.findFirst({
+      where: { areaId: area.id, data: { gte: hoje } },
+      orderBy: { data: "asc" },
+    }),
+  ]);
 
   const semDados = dados.length === 0;
   const diaAtual = dados[0];
 
+  // Serializa para passar ao Client Component
+  const diasSerializados = dados.map((d) => ({
+    id: d.id,
+    data: d.data.toISOString().slice(0, 10),
+    tempMax: d.tempMax,
+    tempMin: d.tempMin,
+    probPrecipitacao: d.probPrecipitacao,
+    precipitacao: d.precipitacao,
+    weatherCode: d.weatherCode,
+    ventoMax: d.ventoMax,
+    nascerSol: d.nascerSol,
+    porSol: d.porSol,
+    duracaoSol: d.duracaoSol,
+  }));
+
+  const horariosSerializados = horarios.map((h) => ({
+    id: h.id,
+    hora: h.hora.toISOString(),
+    temperatura: h.temperatura,
+    sensacaoTermica: h.sensacaoTermica,
+    umidade: h.umidade,
+    probChuva: h.probChuva,
+    precipitacao: h.precipitacao,
+    weatherCode: h.weatherCode,
+    vento: h.vento,
+  }));
+
   return (
-    <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-6">
-      {/* Header */}
+    <div className="p-6 md:p-8 max-w-5xl space-y-6 overflow-x-hidden">
+
+      {/* ── Header ── */}
       <div>
-        <Link
-          href="/dashboard/areas"
-          className="inline-flex items-center gap-1.5 text-sm text-white/30 hover:text-white/60 transition-colors mb-4"
-        >
+        <Link href="/dashboard/areas"
+          className="inline-flex items-center gap-1.5 text-sm text-white/30 hover:text-white/60 transition-colors mb-4">
           <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
           Minhas Áreas
         </Link>
@@ -136,61 +152,52 @@ export default async function AreaPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
-      {/* Estado: aguardando primeira coleta */}
+      {/* ── Sem dados ── */}
       {semDados && (
         <div className="rounded-2xl border border-white/8 bg-white/3 p-10 text-center">
           <Clock className="w-10 h-10 text-white/15 mx-auto mb-4" strokeWidth={1} />
           <h2 className="text-white font-semibold mb-2">Coletando dados climáticos</h2>
           <p className="text-sm text-white/35 max-w-sm mx-auto">
-            Os dados desta área serão carregados na próxima coleta automática, que ocorre a cada hora.
-            Volte em breve.
+            Os dados serão carregados na próxima coleta automática, que ocorre a cada hora.
           </p>
         </div>
       )}
 
-      {/* Dados disponíveis */}
       {!semDados && diaAtual && (
         <>
-          {/* Condições do dia + destaques */}
+          {/* ── Condições do dia + destaques ── */}
           <div className="grid md:grid-cols-5 gap-4">
-            <div
-              className="md:col-span-3 rounded-2xl border border-[#B2D5E5]/15 p-6"
-              style={{ background: "linear-gradient(135deg, rgba(178,213,229,0.10) 0%, rgba(178,213,229,0.03) 100%)" }}
-            >
+            <div className="md:col-span-3 rounded-2xl border border-[#B2D5E5]/15 p-6"
+              style={{ background: "linear-gradient(135deg, rgba(178,213,229,0.10) 0%, rgba(178,213,229,0.03) 100%)" }}>
               <div className="flex items-start justify-between mb-6">
                 <WeatherIcon code={diaAtual.weatherCode ?? 0} className="w-16 h-16 text-[#B2D5E5]" />
                 <div className="text-right">
-                  <p className="text-6xl font-black text-white leading-none">
-                    {Math.round(diaAtual.tempMax ?? 0)}°
-                  </p>
-                  <p className="text-sm text-white/40 mt-1">
-                    Mínima {Math.round(diaAtual.tempMin ?? 0)}°C
-                  </p>
+                  <p className="text-6xl font-black text-white leading-none">{Math.round(diaAtual.tempMax ?? 0)}°</p>
+                  <p className="text-sm text-white/40 mt-1">Mínima {Math.round(diaAtual.tempMin ?? 0)}°C</p>
                 </div>
               </div>
-              <p className="text-base font-semibold text-white mb-4">
-                {descricaoTempo(diaAtual.weatherCode ?? 0)}
-              </p>
-              <div className="flex items-center gap-5 text-sm text-white/50">
+              <p className="text-base font-semibold text-white mb-3">{descricaoTempo(diaAtual.weatherCode ?? 0)}</p>
+              <div className="flex items-center gap-5 text-sm text-white/50 mb-3">
                 {diaAtual.umidadeRelativa != null && (
-                  <span className="flex items-center gap-1.5">
-                    <Droplets className="w-4 h-4" strokeWidth={1.5} />
-                    {diaAtual.umidadeRelativa}%
-                  </span>
+                  <span className="flex items-center gap-1.5"><Droplets className="w-4 h-4" strokeWidth={1.5} />{diaAtual.umidadeRelativa}%</span>
                 )}
                 {diaAtual.ventoMax != null && (
-                  <span className="flex items-center gap-1.5">
-                    <Wind className="w-4 h-4" strokeWidth={1.5} />
-                    {Math.round(diaAtual.ventoMax)} km/h
-                  </span>
+                  <span className="flex items-center gap-1.5"><Wind className="w-4 h-4" strokeWidth={1.5} />{Math.round(diaAtual.ventoMax)} km/h</span>
                 )}
                 {(diaAtual.precipitacao ?? 0) > 0 && (
-                  <span className="flex items-center gap-1.5">
-                    <CloudRain className="w-4 h-4" strokeWidth={1.5} />
-                    {diaAtual.precipitacao} mm
-                  </span>
+                  <span className="flex items-center gap-1.5"><CloudRain className="w-4 h-4" strokeWidth={1.5} />{diaAtual.precipitacao} mm</span>
                 )}
               </div>
+              {/* Nascer/pôr do sol */}
+              {diaAtual.nascerSol && (
+                <div className="flex items-center gap-4 text-xs text-white/25 border-t border-white/6 pt-3 mt-1">
+                  <span>☀️ Nasce {diaAtual.nascerSol}</span>
+                  <span>🌙 Põe {diaAtual.porSol}</span>
+                  {diaAtual.duracaoSol && (
+                    <span>{Math.floor(diaAtual.duracaoSol / 60)}h{diaAtual.duracaoSol % 60}min de sol</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="md:col-span-2 grid grid-cols-2 gap-3">
@@ -224,23 +231,37 @@ export default async function AreaPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
 
-          {/* Previsão 7 dias */}
-          {dados.length > 1 && (
-            <div className="bg-white/3 border border-white/6 rounded-2xl p-5">
-              <h2 className="text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">
-                Próximos {dados.length} dias
-              </h2>
-              <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${dados.length}, 1fr)` }}>
-                {dados.map((dia, i) => (
-                  <ForecastCard key={dia.id} dia={dia} isHoje={i === 0} />
-                ))}
-              </div>
-            </div>
-          )}
+          {/* ── Previsão expandível (hoje horária + próximos dias accordion) ── */}
+          <PrevisaoSection dias={diasSerializados} horarios={horariosSerializados} />
 
-          {/* Solo & Irrigação */}
+          {/* ── Qualidade do ar ── */}
+          {qualidadeAr && qualidadeAr.usAqi != null && (() => {
+            const aqiCat = categoriaAQI(qualidadeAr.usAqi);
+            return (
+              <div className={`rounded-2xl border p-5 ${aqiCat.bg}`}>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm font-semibold text-white/50 uppercase tracking-wider">Qualidade do Ar</h2>
+                  <span className={`text-sm font-bold ${aqiCat.cor}`}>{aqiCat.label}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { label: "AQI (US)", value: qualidadeAr.usAqi?.toString() ?? "—" },
+                    { label: "PM2.5", value: qualidadeAr.pm25 != null ? `${qualidadeAr.pm25} μg/m³` : "—" },
+                    { label: "PM10", value: qualidadeAr.pm10 != null ? `${qualidadeAr.pm10} μg/m³` : "—" },
+                    { label: "Poeira", value: qualidadeAr.dust != null ? `${qualidadeAr.dust} μg/m³` : "—" },
+                  ].map((item) => (
+                    <div key={item.label}>
+                      <p className="text-xs text-white/30 mb-1">{item.label}</p>
+                      <p className="text-base font-bold text-white">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ── Solo & Irrigação ── */}
           <div className="grid md:grid-cols-2 gap-4">
-            {/* Balanço hídrico */}
             {diaAtual.evapotranspiracao != null && (() => {
               const evapo = categoriaEvapotranspiracao(diaAtual.evapotranspiracao);
               return (
@@ -261,7 +282,6 @@ export default async function AreaPage({ params }: { params: Promise<{ id: strin
               );
             })()}
 
-            {/* Solo */}
             {diaAtual.umidadeSolo39 != null && (() => {
               const umidadeSolo = categoriaUmidadeSolo(diaAtual.umidadeSolo39);
               return (
